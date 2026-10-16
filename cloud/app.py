@@ -28,8 +28,8 @@ class Loss(BaseModel):
     to_index:int|None=None
     reason:str
 class Batch(BaseModel):
-    samples:list[Sample]=[]
-    losses:list[Loss]=[]
+    samples:list[Sample]=Field(default_factory=list)
+    losses:list[Loss]=Field(default_factory=list)
 
 @app.get("/health")
 def health():

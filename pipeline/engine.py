@@ -39,7 +39,9 @@ class Engine:
                 rr=httpx.get(f"{self.cloud}/sessions/{sid}/results",timeout=10); rr.raise_for_status()
                 for result in rr.json().get("results",[]): self.store.save_result(sid,result["window"],"online",result)
             return True
-        except Exception as e: log.warning("cloud unavailable; backlog retained: %s",e);return False
+        except (httpx.HTTPError, OSError, ValueError) as e:
+            log.warning("cloud unavailable; backlog retained: %s",e)
+            return False
     def run(self):
         while not self.stop:
             for sensor in (1,2):

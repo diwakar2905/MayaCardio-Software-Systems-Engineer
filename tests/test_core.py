@@ -5,6 +5,8 @@ import zlib
 from pipeline.mock_client import validate,MockError
 from pipeline.store import Store
 from pipeline.processing import compute_window
+from fastapi.testclient import TestClient
+import cloud.app as cloud_app
 
 def test_crc():
     data='[[1,2,3]]';crc=f"{zlib.crc32(data.encode())&0xffffffff:08x}"
@@ -43,3 +45,27 @@ def test_heart_rate_uses_five_second_peak_gaps():
     r=compute_window("s",4,s1,s2,"offline")
     assert r["heart_rate"]==89.9
     assert math.isclose(r["magnitude"],math.sqrt(2),abs_tol=0.1)
+
+def test_cloud_ingest_is_idempotent_and_exports_results(tmp_path,monkeypatch):
+    monkeypatch.setattr(cloud_app,"DB",tmp_path/"cloud.db")
+    client=TestClient(cloud_app.app)
+    samples=[]
+    for sensor,values in ((1,[0,0,0]),(2,[1,1])):
+        samples.extend({"session_id":"cloud-session","sensor":sensor,"index":i,"values":values} for i in range(400))
+    body={"samples":samples,"losses":[]}
+    assert client.post("/ingest",json=body).status_code==200
+    assert client.post("/ingest",json=body).status_code==200
+    exported=client.get("/sessions/cloud-session/export")
+    assert exported.status_code==200
+    assert len(exported.json()["samples"])==800
+    results=client.get("/sessions/cloud-session/results")
+    assert results.status_code==200
+    assert len(results.json()["results"])==1
+
+def test_cloud_rejects_wrong_channel_count(tmp_path,monkeypatch):
+    monkeypatch.setattr(cloud_app,"DB",tmp_path/"cloud.db")
+    client=TestClient(cloud_app.app)
+    response=client.post("/ingest",json={"samples":[
+        {"session_id":"s","sensor":1,"index":0,"values":[1,2]}
+    ]})
+    assert response.status_code==422
