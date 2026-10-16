@@ -23,7 +23,7 @@ def data_array_bytes(raw):
 
 def validate(raw):
     try: o=json.loads(raw.decode())
-    except Exception as e: raise MockError(f"bad JSON: {e}")
+    except (UnicodeDecodeError, json.JSONDecodeError) as e: raise MockError(f"bad JSON: {e}") from e
     for k in ("session_id","sensor","first_index","count","lost","data","crc32"):
         if k not in o: raise MockError("missing "+k)
     if o["sensor"] not in (1,2) or o["count"]!=len(o["data"]): raise MockError("invalid sensor/count")

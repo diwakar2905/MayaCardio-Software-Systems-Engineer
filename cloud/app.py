@@ -41,24 +41,21 @@ def health():
 def ingest(batch:Batch):
     c=conn()
     try:
-        c.execute("BEGIN IMMEDIATE")
-        for s in batch.samples:
-            if len(s.values)!=(3 if s.sensor==1 else 2): raise HTTPException(422,"wrong channel count")
-            c.execute("INSERT OR IGNORE INTO samples VALUES(?,?,?,?,?)",(s.session_id,s.sensor,s.index,json.dumps(s.values,separators=(",",":")),time.time()))
-        for l in batch.losses:
-            c.execute("INSERT OR IGNORE INTO losses VALUES(?,?,?,?,?)",(l.session_id,l.sensor,l.from_index,l.to_index,l.reason))
-        c.commit()
-        # Process only windows for which both sensors have advanced beyond the window.
-        sessions={s.session_id for s in batch.samples}
-        for sid in sessions:
-            s1=[{"index":r["idx"],"values":json.loads(r["values_json"])} for r in c.execute("SELECT idx,values_json FROM samples WHERE session_id=? AND sensor=1 ORDER BY idx",(sid,))]
-            s2=[{"index":r["idx"],"values":json.loads(r["values_json"])} for r in c.execute("SELECT idx,values_json FROM samples WHERE session_id=? AND sensor=2 ORDER BY idx",(sid,))]
-            for result in compute_windows(sid,s1,s2,"online"):
-                c.execute("INSERT INTO results VALUES(?,?,?,?) ON CONFLICT(session_id,window_idx) DO UPDATE SET result_json=excluded.result_json,updated=excluded.updated",(sid,result["window"],json.dumps(result,separators=(",",":")),time.time()))
-        c.commit()
-        return {"accepted":len(batch.samples),"losses_recorded":len(batch.losses)}
-    except:
-        c.rollback(); raise
+        with c:
+            c.execute("BEGIN IMMEDIATE")
+            for s in batch.samples:
+                if len(s.values)!=(3 if s.sensor==1 else 2): raise HTTPException(422,"wrong channel count")
+                c.execute("INSERT OR IGNORE INTO samples VALUES(?,?,?,?,?)",(s.session_id,s.sensor,s.index,json.dumps(s.values,separators=(",",":")),time.time()))
+            for l in batch.losses:
+                c.execute("INSERT OR IGNORE INTO losses VALUES(?,?,?,?,?)",(l.session_id,l.sensor,l.from_index,l.to_index,l.reason))
+            # Process only windows for which both sensors have advanced beyond the window.
+            sessions={s.session_id for s in batch.samples}
+            for sid in sessions:
+                s1=[{"index":r["idx"],"values":json.loads(r["values_json"])} for r in c.execute("SELECT idx,values_json FROM samples WHERE session_id=? AND sensor=1 ORDER BY idx",(sid,))]
+                s2=[{"index":r["idx"],"values":json.loads(r["values_json"])} for r in c.execute("SELECT idx,values_json FROM samples WHERE session_id=? AND sensor=2 ORDER BY idx",(sid,))]
+                for result in compute_windows(sid,s1,s2,"online"):
+                    c.execute("INSERT INTO results VALUES(?,?,?,?) ON CONFLICT(session_id,window_idx) DO UPDATE SET result_json=excluded.result_json,updated=excluded.updated",(sid,result["window"],json.dumps(result,separators=(",",":")),time.time()))
+            return {"accepted":len(batch.samples),"losses_recorded":len(batch.losses)}
     finally:c.close()
 
 @app.get("/sessions/{sid}/export")
